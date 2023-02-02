@@ -1,6 +1,7 @@
 import sys
+import os
 
-import networkx
+import networkx as nx
 
 
 def write_gph(dag, idx2names, filename):
@@ -10,18 +11,31 @@ def write_gph(dag, idx2names, filename):
 
 
 def compute(infile, outfile):
-    # WRITE YOUR CODE HERE
-    # FEEL FREE TO CHANGE ANYTHING ANYWHERE IN THE CODE
-    # THIS INCLUDES CHANGING THE FUNCTION NAMES, MAKING THE CODE MODULAR, BASICALLY ANYTHING
-    pass
+    """
+    Read a csv file and write a graph file to outfile.
+
+    Args:
+        infile (str): path to input csv file
+        outfile (str): path to output graph file
+    """
+    with open(infile, 'r') as f:
+        lines = f.readlines()
+        print(f"liens is {lines}")
+
+    G = nx.Graph()
+    print(f"G is {G}")
+    G.add_node(1)
+    print(f"G is {G}")
+    # write_gph(networkx.DiGraph(), {}, outfile)
 
 
 def main():
     if len(sys.argv) != 3:
         raise Exception("usage: python project1.py <infile>.csv <outfile>.gph")
-
-    inputfilename = sys.argv[1]
-    outputfilename = sys.argv[2]
+    data_dir = "data"
+    graph_dir = "graphs"
+    inputfilename = os.path.join(data_dir, sys.argv[1])
+    outputfilename = os.path.join(graph_dir, sys.argv[2])
     compute(inputfilename, outputfilename)
 
 
