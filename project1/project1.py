@@ -4,6 +4,8 @@ import os
 import networkx as nx
 import scipy
 import numpy as np
+import pgmpy
+import pandas as pd
 
 DEBUG = True
 
@@ -20,29 +22,45 @@ def write_gph(dag, idx2names, filename):
     with open(filename, 'w') as f:
         for edge in dag.edges():
             if DEBUG: print(f"edge is {edge}")
-            f.write("{},{}\n".format(edge[0], edge[1]))
-
-
+            f.write("{},{}\n".format(idx2names[edge[0]], idx2names[edge[1]]))
 
 
 def sub2ind(siz, x):
     k = np.concatenate(([1], np.cumprod(siz[:-1])))
     return np.dot(k, x - 1) + 1
 
+
 def statistics(vars, G, D):
-    n = D.shape[0]
-    r = [vars[i].r for i in range(n)]
-    q = [np.prod([r[j] for j in G.inneighbors(i)]) for i in range(n)]
-    M = [np.zeros((q[i], r[i])) for i in range(n)]
-    for o in np.transpose(D):
-        for i in range(n):
-            k = o[i]
-            parents = G.inneighbors(i)
-            j = 1
-            if len(parents) > 0:
-                j = sub2ind(r, o[parents])
-            M[i][j, k] += 1.0
+    """
+    Compute the statistics of a DAG, given a pandas datagrame and a graph.
+    
+    Args:
+        vars (list): a list of variables
+        G (networkx.DiGraph): a directed acyclic graph
+        D (pandas.DataFrame): a dataframe, nxm where n is the number of nodes and m is the number of samples
+    """
+    n = D.shape[1]
+    assert n == len(vars)
+    if DEBUG: print(f"n is {n}")
+
+
+    # create a list of lists of lists of zeros
+    q = [np.prod([vars[j].r for j in G.predecessors(i)], dtype=int) for i in range(n)]
+    M = [np.zeros((vars[i].r, q[i])) for i in range(n)]
     return M
+
+
+def prior(vars, G):
+    """
+    Note that this code assumes that inneighbors(G,i) returns the indices
+    of the neighbors of node i in graph G, and that np.prod is the function
+    for computing the product of an array of numbers.
+    """
+    n = len(vars)
+    r = [vars[i].r for i in range(n)]
+    q = [np.prod([r[j] for j in G.parents(i)]) for i in range(n)]
+    return q
+
 
 def bayesian_score(vars, G, D):
     """
@@ -50,9 +68,12 @@ def bayesian_score(vars, G, D):
     """
     n = len(vars)
     M = statistics(vars, G, D)
+    if DEBUG: print(f"M is {M}")
     alpha = prior(vars, G)
+    if DEBUG: print(f"alpha is {alpha}")
 
-    return np.sum(bayesian_score_component(M[i], alpha[i]) for i in 1:n)
+    return np.sum(bayesian_score_component(M[i], alpha[i]) for i in range(1,n))
+
 
 def bayesian_score_component(M, alpha):
     """
@@ -65,54 +86,90 @@ def bayesian_score_component(M, alpha):
     Returns:
         float: the Bayesian score component
     """
-    p = sum(loggama(alpha + sum(M, axis=1)))
+    p = np.sum(scipy.special.loggama(alpha + sum(M, axis=1)))
+    p -= np.sum(scipy.special.loggama(alpha))
+    p += np.sum(scipy.special.loggama(np.sum(alpha, dims=2)))
+    p -= np.sum(scipy.special.loggama(np.sum(alpha, dims=2) + np.sum(M, dims=2)))
+    return p
 
 
-def compute(infile, outfile):
+class Variable:
+    """
+    A variable in a Bayesian network. For each edge in the graph G,
+    there is a corresponding variable in the list vars for every value
+    the parent node has.
+
+    Args:
+        name (str): the name of the variable
+        r (int): the number of values the variable can take on
+    """
+    def __init__(self, name, r):
+        self.name = name
+        self.r = r
+
+def compute(infile, outfile, test=False):
     """
     Read a csv file and write a graph file to outfile.
 
     Args:
         infile (str): path to input csv file
         outfile (str): path to output graph file
-    """
-    G = nx.Graph()
-    idx2names = {}
-    with open(infile, 'r') as f:
-        lines = f.readlines()
-        last_name = None
-        for i, name in enumerate(lines[0].split(",")):
-            name = name.strip("\n").strip("\"")
-            if DEBUG: print(f"name is {name}")
-            G.add_node(name)
-            if i > 0:
-                G.add_edge(last_name, name)
-            last_name = name
-            
-        # print(f"liens is {lines}")
 
-    
-    # for i in range(3):
-    #     idx = i*2
-    #     G.add_node(idx)
-    #     G.add_node(idx+1)
-    #     G.add_edge(idx, idx+1)
-    #     idx2names[idx] = f"Parent{i}"
-    #     idx2names[idx+1] = f"Child{i}"
+    Returns:
+        D (np.ndarray): a data matrix of shape (n, m) 
+        where n is the number of samples and m is the number of nodes. 
+    """
+    G = nx.DiGraph()
+    idx2names = {}
+    # read thet csv file into a dataframe
+    D = pd.read_csv(infile)
+
+    for i in range(D.shape[1]):
+        idx2names[i] = D.columns[i]
+    # add an edge to the graph from column to column + 1 for each column in the dataframe
+    for i in range(D.shape[1] - 1):
+        G.add_edge(i, i+1)
+            
     if DEBUG: 
+        print(f"Datafframe is {D}")
         print(f"G is {G}")
         print(f"The nodes of G are {G.nodes()}")
         print(f"The edges of G are {G.edges()}")
         print("The adjacency matrix of G is")
         print(nx.adjacency_matrix(G).todense())
+    if not test:
+        write_gph(G, idx2names, outfile)
     
-    write_gph(G, idx2names, outfile)
-
+    # For each edge, there is a variable for each value the parent of that edge can have.
+    # create a variable for each column in the dataframe
+    vars = [Variable(col, 0) for col in D.columns]
+    if DEBUG: print(f"vars is {vars}")
+    # for each column in the dataframe, get the number of unique values in that column using pandas
+    for i in range(D.shape[1]):
+        vars[i].r = len(D[D.columns[i]].unique())
+    for i in range(D.shape[1]):
+        if DEBUG: print(f"Variable {vars[i].name}: {vars[i].r}")
+    
+    M = statistics(vars, G, D)
+    if DEBUG: print(f"M is {M}")
+    # make the vars list from the graph G
+    # vars = [Variable(i, D.shape[1]) for i in range(D.shape[1])]
+    # vars = [Var(i, D.shape[1]) for i in range(D.shape[1])]
+    # score = bayesian_score(vars, G, D)
+    # print(f"Bayesian score is {score}")
+    # return score
 
 def main():
-    if len(sys.argv) != 3:
-        raise Exception("usage: python project1.py <infile>.csv <outfolder>")
+    test = False
     data_dir = "data"
+    if len(sys.argv) == 2:
+        print("Running unit test beacuse no args were passed")
+        test = True
+        inputfilename = os.path.join(data_dir, sys.argv[1])
+        compute(inputfilename, "testing", test)
+        return 0
+    elif len(sys.argv) != 3:
+        raise Exception("usage: python project1.py <infile>.csv <outfolder>")
     graph_dir = sys.argv[2] + "_graphs"
     if not os.path.exists(graph_dir):
         os.makedirs(graph_dir)
@@ -120,8 +177,7 @@ def main():
     inputfilename = os.path.join(data_dir, sys.argv[1])
     graph_type = inputfilename.split(os.path.sep)[-1].split(".")[0]
     outputfilename = os.path.join(graph_dir, graph_type + ".gph")
-    compute(inputfilename, outputfilename)
-
+    compute(inputfilename, outputfilename, test)
 
 if __name__ == '__main__':
     main()
