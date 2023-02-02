@@ -47,6 +47,15 @@ def statistics(vars, G, D):
     # create a list of lists of lists of zeros
     q = [np.prod([vars[j].r for j in G.predecessors(i)], dtype=int) for i in range(n)]
     M = [np.zeros((vars[i].r, q[i])) for i in range(n)]
+
+    # Use pandas groupby function to fill in M
+    print(f"Groupby {[name for name in D.columns]} produces the following matrix")
+    grouped = D.groupby(by=[name for name in D.columns]).size().reset_index(name='counts')
+    print(grouped)
+    print("--------")
+    # iterate over the rows of the grouped dataframe and update m
+
+        
     return M
 
 
