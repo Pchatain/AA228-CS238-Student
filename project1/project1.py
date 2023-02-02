@@ -2,6 +2,8 @@ import sys
 import os
 
 import networkx as nx
+import scipy
+import numpy as np
 
 DEBUG = True
 
@@ -19,6 +21,51 @@ def write_gph(dag, idx2names, filename):
         for edge in dag.edges():
             if DEBUG: print(f"edge is {edge}")
             f.write("{},{}\n".format(edge[0], edge[1]))
+
+
+
+
+def sub2ind(siz, x):
+    k = np.concatenate(([1], np.cumprod(siz[:-1])))
+    return np.dot(k, x - 1) + 1
+
+def statistics(vars, G, D):
+    n = D.shape[0]
+    r = [vars[i].r for i in range(n)]
+    q = [np.prod([r[j] for j in G.inneighbors(i)]) for i in range(n)]
+    M = [np.zeros((q[i], r[i])) for i in range(n)]
+    for o in np.transpose(D):
+        for i in range(n):
+            k = o[i]
+            parents = G.inneighbors(i)
+            j = 1
+            if len(parents) > 0:
+                j = sub2ind(r, o[parents])
+            M[i][j, k] += 1.0
+    return M
+
+def bayesian_score(vars, G, D):
+    """
+    Compute the Bayesian score of a DAG.
+    """
+    n = len(vars)
+    M = statistics(vars, G, D)
+    alpha = prior(vars, G)
+
+    return np.sum(bayesian_score_component(M[i], alpha[i]) for i in 1:n)
+
+def bayesian_score_component(M, alpha):
+    """
+    Compute the Bayesian score component of a matrix M.
+    
+    Args:
+        M (numpy.ndarray): a matrix
+        alpha (float): a parameter
+        
+    Returns:
+        float: the Bayesian score component
+    """
+    p = sum(loggama(alpha + sum(M, axis=1)))
 
 
 def compute(infile, outfile):
