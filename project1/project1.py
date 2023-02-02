@@ -30,7 +30,7 @@ def sub2ind(siz, x):
     return np.dot(k, x - 1) + 1
 
 
-def statistics(vars, G, D):
+def statistics(vars, G, D, idx2names):
     """
     Compute the statistics of a DAG, given a pandas datagrame and a graph.
     
@@ -49,10 +49,32 @@ def statistics(vars, G, D):
     M = [np.zeros((vars[i].r, q[i])) for i in range(n)]
 
     # Use pandas groupby function to fill in M
-    print(f"Groupby {[name for name in D.columns]} produces the following matrix")
-    grouped = D.groupby(by=[name for name in D.columns]).size().reset_index(name='counts')
-    print(grouped)
-    print("--------")
+    # print(f"Groupby {[name for name in D.columns]} produces the following matrix")
+    # grouped = D.groupby(by=[name for name in D.columns]).size().reset_index(name='counts')
+    # print(grouped)
+    # print("--------")
+    for i in range(n):
+        print("-----------STARTING NEW NODE------------")
+        print(f"i is {i} and idx2names[i] is {idx2names[i]}")
+        parents = [idx2names[j] for j in G.predecessors(i)]
+        print(f"parents is {parents} for node {i}")
+        grouped = D.groupby(parents + [idx2names[i]]).size().reset_index(name='counts')
+        print(f"grouped is \n {grouped}")
+        print("--------")
+        print(f"The shape of M[i] is {M[i].shape}")
+        if len(parents) > 0:
+            grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').to_numpy()
+        else:
+            grouped = grouped.set_index('age')['counts'].to_frame()
+            print(f"the reformated data has type {type(grouped)}")
+            grouped = grouped.to_numpy()
+        print(f"tjhe reformated data is \n {grouped}")
+        print(f"with shape {grouped.shape}")
+        print("--------END NODE------------")
+        M[i] = grouped
+
+
+
     # iterate over the rows of the grouped dataframe and update m
 
         
@@ -159,7 +181,7 @@ def compute(infile, outfile, test=False):
     for i in range(D.shape[1]):
         if DEBUG: print(f"Variable {vars[i].name}: {vars[i].r}")
     
-    M = statistics(vars, G, D)
+    M = statistics(vars, G, D, idx2names)
     if DEBUG: print(f"M is {M}")
     # make the vars list from the graph G
     # vars = [Variable(i, D.shape[1]) for i in range(D.shape[1])]
