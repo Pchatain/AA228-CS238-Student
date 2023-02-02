@@ -75,7 +75,7 @@ def statistics(vars, G, D, idx2names):
         if len(parents) > 0:
             grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').fillna(0).to_numpy()
         else:
-            grouped = grouped.set_index('age')['counts'].fillna(0).to_numpy()
+            grouped = grouped.set_index(idx2names[i])['counts'].fillna(0).to_numpy()
         if DEBUG: print(f"tjhe reformated data is \n {grouped}")
         if DEBUG: print(f"with shape {grouped.shape}")
         if DEBUG: print("--------END NODE------------")
