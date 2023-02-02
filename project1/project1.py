@@ -7,7 +7,8 @@ import numpy as np
 import pgmpy
 import pandas as pd
 
-DEBUG = True
+DEBUG = False
+DEBUG_BAYES = True
 
 def write_gph(dag, idx2names, filename):
     """
@@ -29,6 +30,20 @@ def sub2ind(siz, x):
     k = np.concatenate(([1], np.cumprod(siz[:-1])))
     return np.dot(k, x - 1) + 1
 
+def calculate_q(vars, G):
+    """
+    Calculate the q vector for a DAG.
+    
+    Args:
+        vars (list): a list of variables
+        G (networkx.DiGraph): a directed acyclic graph
+        
+    Returns:
+        q (list): a list of integers
+    """
+    n = len(vars)
+    q = [np.prod([vars[j].r for j in G.predecessors(i)], dtype=int) for i in range(n)]
+    return q
 
 def statistics(vars, G, D, idx2names):
     """
@@ -43,67 +58,56 @@ def statistics(vars, G, D, idx2names):
     assert n == len(vars)
     if DEBUG: print(f"n is {n}")
 
-
     # create a list of lists of lists of zeros
-    q = [np.prod([vars[j].r for j in G.predecessors(i)], dtype=int) for i in range(n)]
+    q = calculate_q(vars, G)
     M = [np.zeros((vars[i].r, q[i])) for i in range(n)]
 
     # Use pandas groupby function to fill in M
-    # print(f"Groupby {[name for name in D.columns]} produces the following matrix")
-    # grouped = D.groupby(by=[name for name in D.columns]).size().reset_index(name='counts')
-    # print(grouped)
-    # print("--------")
     for i in range(n):
-        print("-----------STARTING NEW NODE------------")
-        print(f"i is {i} and idx2names[i] is {idx2names[i]}")
+        if DEBUG: print("-----------STARTING NEW NODE------------")
+        if DEBUG: print(f"i is {i} and idx2names[i] is {idx2names[i]}")
         parents = [idx2names[j] for j in G.predecessors(i)]
-        print(f"parents is {parents} for node {i}")
+        if DEBUG: print(f"parents is {parents} for node {i}")
         grouped = D.groupby(parents + [idx2names[i]]).size().reset_index(name='counts')
-        print(f"grouped is \n {grouped}")
-        print("--------")
-        print(f"The shape of M[i] is {M[i].shape}")
+        if DEBUG: print(f"grouped is \n {grouped}")
+        if DEBUG: print("--------")
+        if DEBUG: print(f"The shape of M[i] is {M[i].shape}")
         if len(parents) > 0:
-            grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').to_numpy()
+            grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').fillna(0).to_numpy()
         else:
-            grouped = grouped.set_index('age')['counts'].to_frame()
-            print(f"the reformated data has type {type(grouped)}")
-            grouped = grouped.to_numpy()
-        print(f"tjhe reformated data is \n {grouped}")
-        print(f"with shape {grouped.shape}")
-        print("--------END NODE------------")
+            grouped = grouped.set_index('age')['counts'].fillna(0).to_numpy()
+        if DEBUG: print(f"tjhe reformated data is \n {grouped}")
+        if DEBUG: print(f"with shape {grouped.shape}")
+        if DEBUG: print("--------END NODE------------")
         M[i] = grouped
-
-
-
-    # iterate over the rows of the grouped dataframe and update m
-
-        
     return M
 
 
 def prior(vars, G):
     """
-    Note that this code assumes that inneighbors(G,i) returns the indices
-    of the neighbors of node i in graph G, and that np.prod is the function
-    for computing the product of an array of numbers.
+    Compute the uniform prior of a DAG.
+    
+    Args:
+        vars (list): a list of variables
+        G (networkx.DiGraph): a directed acyclic graph
     """
     n = len(vars)
-    r = [vars[i].r for i in range(n)]
-    q = [np.prod([r[j] for j in G.parents(i)]) for i in range(n)]
-    return q
+    q = calculate_q(vars, G)
+    alpha = [np.ones((vars[i].r, q[i])) for i in range(n)]
+    return alpha
 
 
-def bayesian_score(vars, G, D):
+def bayesian_score(vars, G, D, idx2names):
     """
     Compute the Bayesian score of a DAG.
     """
     n = len(vars)
-    M = statistics(vars, G, D)
-    if DEBUG: print(f"M is {M}")
-    alpha = prior(vars, G)
-    if DEBUG: print(f"alpha is {alpha}")
-
-    return np.sum(bayesian_score_component(M[i], alpha[i]) for i in range(1,n))
+    M = statistics(vars, G, D, idx2names)
+    if DEBUG_BAYES: print(f"M has shape {M[0].shape}")
+    alpha = prior(vars, G) # TODO Optimization: This recomputes q as in statistics
+    if DEBUG_BAYES: print(f"alpha has shape {alpha[0].shape}")
+    components = [bayesian_score_component(M[i], alpha[i]) for i in range(1,n)]
+    return sum(components)
 
 
 def bayesian_score_component(M, alpha):
@@ -117,10 +121,16 @@ def bayesian_score_component(M, alpha):
     Returns:
         float: the Bayesian score component
     """
-    p = np.sum(scipy.special.loggama(alpha + sum(M, axis=1)))
-    p -= np.sum(scipy.special.loggama(alpha))
-    p += np.sum(scipy.special.loggama(np.sum(alpha, dims=2)))
-    p -= np.sum(scipy.special.loggama(np.sum(alpha, dims=2) + np.sum(M, dims=2)))
+    # if DEBUG_BAYES: print(f"M has shape {M.shape}")
+    # if DEBUG_BAYES: print(f"alpha has shape {alpha.shape}")
+    p =  sum(scipy.special.loggamma(alpha + M).reshape(-1))
+    # if DEBUG_BAYES: print(f"p has shape {p.shape}")
+    p -= sum(scipy.special.loggamma(alpha).reshape(-1))
+    # if DEBUG_BAYES: print(f"p has shape {p.shape}")
+    p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1))
+    # if DEBUG_BAYES: print(f"p has shape {p.shape}")
+    p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1))
+    # if DEBUG_BAYES: print(f"p is {p}")
     return p
 
 
@@ -179,16 +189,14 @@ def compute(infile, outfile, test=False):
     for i in range(D.shape[1]):
         vars[i].r = len(D[D.columns[i]].unique())
     for i in range(D.shape[1]):
-        if DEBUG: print(f"Variable {vars[i].name}: {vars[i].r}")
-    
-    M = statistics(vars, G, D, idx2names)
-    if DEBUG: print(f"M is {M}")
-    # make the vars list from the graph G
-    # vars = [Variable(i, D.shape[1]) for i in range(D.shape[1])]
-    # vars = [Var(i, D.shape[1]) for i in range(D.shape[1])]
-    # score = bayesian_score(vars, G, D)
-    # print(f"Bayesian score is {score}")
-    # return score
+        if DEBUG_BAYES: print(f"Variable {vars[i].name}: {vars[i].r}")
+    if test:
+        M = statistics(vars, G, D, idx2names)
+        if DEBUG: print(f"M is {M}")
+
+        score = bayesian_score(vars, G, D, idx2names)
+        if DEBUG_BAYES: print(f"Bayesian score is {score}")
+        return score
 
 def main():
     test = False
