@@ -167,6 +167,56 @@ class Variable:
         self.name = name
         self.r = r
 
+def k2_alg(vars, D, idx2names):
+    """
+    Julia Code:
+    function fit(method::K2Search, vars, D)
+        G = SimpleDiGraph(length(vars))
+        for (k,i) in enumerate(method.ordering[2:end])
+            y = bayesian_score(vars, G, D)
+            while true
+                y_best, j_best = -Inf, 0
+                for j in method.ordering[1:k]
+                    if !has_edge(G, j, i)
+                        add_edge!(G, j, i)
+                        y′ = bayesian_score(vars, G, D)
+                        if y′ > y_best
+                            y_best, j_best = y′, j
+                        end
+                        rem_edge!(G, j, i)
+                    end
+                end
+                if y_best > y
+                    y = y_best
+                    add_edge!(G, j_best, i)
+                else
+                    break
+                end
+            end
+        end
+        return G
+    """
+    G = nx.DiGraph()
+    G.add_nodes_from(vars)
+    for k, i in enumerate(method.ordering[1:]):
+        y = bayesian_score(vars, G, D)
+        while True:
+            y_best, j_best = float("-inf"), 0
+            for j in method.ordering[:k]:
+                if not G.has_edge(j, i):
+                    G.add_edge(j, i)
+                    y_prime = bayesian_score(vars, G, D)
+                    if y_prime > y_best:
+                        y_best, j_best = y_prime, j
+                    G.remove_edge(j, i)
+            if y_best > y:
+                y = y_best
+                G.add_edge(j_best, i)
+            else:
+                break
+    return G
+
+
 def compute(infile, outfile, test=False):
     """
     Read a csv file and write a graph file to outfile.
@@ -208,9 +258,10 @@ def compute(infile, outfile, test=False):
         parent3,child3
         """
         G = nx.DiGraph()
-        G.add_edge(0, 1)
-        G.add_edge(2, 3)
-        G.add_edge(4, 5)
+        G.add_nodes_from([0, 1, 2, 3, 4, 5])
+        # G.add_edge(0, 1)
+        # G.add_edge(2, 3)
+        # G.add_edge(4, 5)
         idx2names = {0: 'parent1', 1: 'child1', 2: 'parent2', 3: 'child2', 4: 'parent3', 5: 'child3'}
         for edge in G.edges():
             print(f"edge is {idx2names[edge[0]]} -> {idx2names[edge[1]]}")
