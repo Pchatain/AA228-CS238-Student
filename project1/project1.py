@@ -73,14 +73,14 @@ def statistics(vars, G, D, idx2names):
         if VERBOSE: print(f"grouped is \n {grouped}")
         if VERBOSE: print("--------")
         if len(parents) > 0:
-            print("has parents")
+            if VERBOSE: print("has parents")
             grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').fillna(0).to_numpy().T
         else:
-            print("no parents")
+            if VERBOSE: print("no parents")
             grouped = grouped['counts'].fillna(0).to_numpy()
-            print(f"grouped has shape {grouped.shape}")
+            if VERBOSE: print(f"grouped has shape {grouped.shape}")
             grouped = grouped.reshape(1,-1)
-            print(f"new shape is {grouped.shape}")
+            if VERBOSE: print(f"new shape is {grouped.shape}")
         if VERBOSE: print(f"tjhe reformated data is \n {grouped}")
         if VERBOSE: print(f"with shape {grouped.shape}")
         if VERBOSE: print("--------END NODE------------")
@@ -114,7 +114,7 @@ def bayesian_score(vars, G, D, idx2names):
             print(f"M[{i}] has shape {M[i].shape}")
     if DEBUG_BAYES: print(M)
     alpha = prior(vars, G) # TODO Optimization: This recomputes q as in statistics
-    print(alpha)
+    if VERBOSE: print(alpha)
     if DEBUG_BAYES: print(f"alpha has shape {alpha[0].shape}")
     components = [bayesian_score_component(M[i], alpha[i], i) for i in range(n)]
     return sum(components)
@@ -131,7 +131,6 @@ def bayesian_score_component(M, alpha, i):
     Returns:
         float: the Bayesian score component
     """
-    print(f"Processing component {i}")
     if DEBUG_BAYES: print(f"alpha is {alpha}")
     if DEBUG_BAYES: print(f"M is {M}")
     assert M.shape == alpha.shape, f"Component size mismatch. M has shape {M.shape} and alpha has shape {alpha.shape}"
@@ -139,16 +138,15 @@ def bayesian_score_component(M, alpha, i):
     # print(scipy.special.loggamma(alpha))
     # print(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)))
     # if DEBUG_BAYES: print(f"M has shape {M.shape}")
-    p =  sum(scipy.special.loggamma(alpha + M).reshape(-1)) # 2
-    print(p)
+    p = sum(scipy.special.loggamma(alpha + M).reshape(-1)) # 2
     
     assert sum(scipy.special.loggamma(alpha).reshape(-1)) == 0
     p -= sum(scipy.special.loggamma(alpha).reshape(-1)) # 4
 
-    print(sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)))
+    # print(sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)))
     p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)) # 1
 
-    print(-sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)))
+    # print(-sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)))
     p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)) # 3
 
     if DEBUG: print(f"p is {p}")
@@ -229,10 +227,10 @@ def compute(infile, outfile, test=False):
         vars[i].r = len(D[D.columns[i]].unique())
     for i in range(D.shape[1]):
         if DEBUG_BAYES: print(f"Variable {vars[i].name}: {vars[i].r}")
-    if test:
-        score = bayesian_score(vars, G, D, idx2names)
-        print(f"Bayesian score is {score}")
-        return score
+
+    score = bayesian_score(vars, G, D, idx2names)
+    print(f"Bayesian score is {score}")
+    return score
 
 def main():
     test = False
