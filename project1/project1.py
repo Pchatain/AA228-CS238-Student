@@ -303,6 +303,57 @@ def compute(infile, outfile, test=False, k2=False):
         write_gph(G, idx2names, outfile)
     return score
 
+def rand_graph_neighbor(G):
+    n = len(G.nodes)
+    i = np.random.randint(0, n-1)
+    j = (i + np.random.randint(1, n-1)) % n
+    G_new = G.copy()
+    if (i, j) in G.edges:
+        G_new.remove_edge(i, j)
+    else:
+        G_new.add_edge(i, j)
+    return G_new
+
+def hill_climb(csv_file, graph_file, outfile):
+    """
+    Perform hill climbing on top of an existing graph.
+
+    Args:
+        csv_file (str): path to csv file
+        graph_file (str): path to graph file
+        outfile (str): path to output graph file
+    """
+    G, idx2names = read_graph(graph_file, csv_file)
+    D = pd.read_csv(csv_file)
+    vars = [Variable(col, 0) for col in D.columns]
+    for i in range(D.shape[1]):
+        vars[i].r = len(D[D.columns[i]].unique())
+    
+    old_score = bayesian_score(vars, G, D, idx2names)
+    print(f"old score is {old_score}")
+    first_score = old_score
+    # perform the hill climbing algorithm
+    for iteration in range(200):
+        G_new = rand_graph_neighbor(G)
+        # if G_new is cyclic, skip it
+        if len(list(nx.simple_cycles(G))) > 0:
+            # print(f"Bad, skipping")
+            continue
+        new_score = bayesian_score(vars, G_new, D, idx2names)
+        if new_score > old_score:
+            G = G_new
+            old_score = new_score
+            print(f"New score is {old_score}")
+        if iteration % 10 == 0:
+            print(f"iteration {iteration} score is {old_score}, saving checkpoint")
+            write_gph(G, idx2names, outfile + ".checkpoint")
+
+    score = bayesian_score(vars, G, D, idx2names)
+    print(f"Bayesian score is {score}")
+    if score > first_score:
+        print(f"Writing graph to {outfile} because {score} > {first_score}")
+        write_gph(G, idx2names, outfile)
+
 def read_graph(graph_filename, csv_filename):
     """
     Read a graph file and return a networkx graph
@@ -321,7 +372,6 @@ def read_graph(graph_filename, csv_filename):
                 header = [field.strip('"\n') for field in line.split(",")]
                 idx2names = {i: header[i] for i in range(len(header))}
                 names2idx = {header[i]: i for i in range(len(header))}
-                print(names2idx)
                 print(idx2names)
                 break
     with open(graph_filename, "r") as f:
@@ -329,7 +379,6 @@ def read_graph(graph_filename, csv_filename):
             line = line.strip().split(",")
             if len(line) == 0:
                 continue
-            print(names2idx[line[0]])
             G.add_edge(int(names2idx[line[0]]), int(names2idx[line[1]]))
     return G, idx2names
 
@@ -342,8 +391,8 @@ def main():
         inputfilename = sys.argv[1]
         compute(inputfilename, "testing", test)
         return 0
-    elif len(sys.argv) != 3:
-        raise Exception("usage: python project1.py <infile>.csv <outfolder>")
+    elif len(sys.argv) != 4:
+        raise Exception("usage: python project1.py <infile>.csv <outfolder> <graphfile>.gph")
     graph_dir = sys.argv[2] + "_graphs"
     if not os.path.exists(graph_dir):
         os.makedirs(graph_dir)
@@ -351,12 +400,13 @@ def main():
     inputfilename = sys.argv[1]
     graph_type = inputfilename.split(os.path.sep)[-1].split(".")[0]
     outputfilename = os.path.join(graph_dir, graph_type + ".gph")
-    compute(inputfilename, outputfilename, test, k2=True)
+    # compute(inputfilename, outputfilename, test, k2=True) # k2 starting point
+    hill_climb(inputfilename, graph_file=sys.argv[3], outfile=outputfilename)
 
 if __name__ == '__main__':
-    # main()
-    G, idx2names = read_graph(sys.argv[1], sys.argv[2])
-    write_gph(G, idx2names, sys.argv[3])
+    main()
+    # G, idx2names = read_graph(sys.argv[1], sys.argv[2])
+    # write_gph(G, idx2names, sys.argv[3])
     """
     Implemented k2 and ran it. It produced:
         For small graph:
