@@ -7,8 +7,9 @@ import numpy as np
 import pgmpy
 import pandas as pd
 
-DEBUG = True
+DEBUG       = True
 DEBUG_BAYES = True
+VERBOSE     = True
 
 def write_gph(dag, idx2names, filename):
     """
@@ -42,7 +43,7 @@ def calculate_q(vars, G):
         q (list): a list of integers
     """
     n = len(vars)
-    q = [np.prod([vars[j].r for j in G.predecessors(i)], dtype=int) for i in range(n)]
+    q = [np.max((1, np.prod([vars[j].r for j in G.predecessors(i)], dtype=int))) for i in range(n)]
     return q
 
 def statistics(vars, G, D, idx2names):
@@ -56,31 +57,35 @@ def statistics(vars, G, D, idx2names):
     """
     n = D.shape[1]
     assert n == len(vars)
-    if DEBUG: print(f"n is {n}")
+    if VERBOSE: print(f"n is {n}")
 
     # create a list of lists of lists of zeros
     q = calculate_q(vars, G)
-    M = [np.zeros((vars[i].r, q[i])) for i in range(n)]
+    M = [np.zeros((q[i], vars[i].r), dtype=np.float32) for i in range(n)]
 
     # Use pandas groupby function to fill in M
     for i in range(n):
-        if DEBUG: print("-----------STARTING NEW NODE------------")
-        if DEBUG: print(f"i is {i} and idx2names[i] is {idx2names[i]}")
+        if VERBOSE: print("-----------STARTING NEW NODE------------")
+        if VERBOSE: print(f"i is {i} and idx2names[i] is {idx2names[i]}")
         parents = [idx2names[j] for j in G.predecessors(i)]
-        if DEBUG: print(f"parents is {parents} for node {i}")
+        if VERBOSE: print(f"parents is {parents} for node {i}")
         grouped = D.groupby(parents + [idx2names[i]]).size().reset_index(name='counts')
-        if DEBUG: print(f"grouped is \n {grouped}")
-        if DEBUG: print("--------")
-        if DEBUG: print(f"The shape of M[i] is {M[i].shape}")
+        if VERBOSE: print(f"grouped is \n {grouped}")
+        if VERBOSE: print("--------")
         if len(parents) > 0:
-            grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').fillna(0).to_numpy()
+            print("has parents")
+            grouped = grouped.pivot(index=idx2names[i], columns=parents, values='counts').fillna(0).to_numpy().T
         else:
-            grouped = grouped.set_index(idx2names[i])['counts'].fillna(0).to_numpy()
-        if DEBUG: print(f"tjhe reformated data is \n {grouped}")
-        if DEBUG: print(f"with shape {grouped.shape}")
-        if DEBUG: print("--------END NODE------------")
-        M[i] = grouped
-    if DEBUG: print(f"M is after all statistics {M}")
+            print("no parents")
+            grouped = grouped['counts'].fillna(0).to_numpy()
+            print(f"grouped has shape {grouped.shape}")
+            grouped = grouped.reshape(1,-1)
+            print(f"new shape is {grouped.shape}")
+        if VERBOSE: print(f"tjhe reformated data is \n {grouped}")
+        if VERBOSE: print(f"with shape {grouped.shape}")
+        if VERBOSE: print("--------END NODE------------")
+        M[i] = grouped.astype(np.float32)
+    if VERBOSE: print(f"M is after all statistics {M}")
     return M
 
 
@@ -94,7 +99,7 @@ def prior(vars, G):
     """
     n = len(vars)
     q = calculate_q(vars, G)
-    alpha = [np.ones((vars[i].r, q[i])) for i in range(n)]
+    alpha = [np.ones((q[i], vars[i].r)) for i in range(n)]
     return alpha
 
 
@@ -104,15 +109,18 @@ def bayesian_score(vars, G, D, idx2names):
     """
     n = len(vars)
     M = statistics(vars, G, D, idx2names)
-    if DEBUG_BAYES: print(f"M has shape {M[0].shape}")
+    if DEBUG_BAYES:
+        for i in range(n):
+            print(f"M[{i}] has shape {M[i].shape}")
+    if DEBUG_BAYES: print(M)
     alpha = prior(vars, G) # TODO Optimization: This recomputes q as in statistics
     print(alpha)
     if DEBUG_BAYES: print(f"alpha has shape {alpha[0].shape}")
-    components = [bayesian_score_component(M[i], alpha[i]) for i in range(1,n)]
+    components = [bayesian_score_component(M[i], alpha[i], i) for i in range(n)]
     return sum(components)
 
 
-def bayesian_score_component(M, alpha):
+def bayesian_score_component(M, alpha, i):
     """
     Compute the Bayesian score component of a matrix M.
     
@@ -123,39 +131,26 @@ def bayesian_score_component(M, alpha):
     Returns:
         float: the Bayesian score component
     """
-    assert M.shape == alpha.shape
-    if len(M.shape) == 1:
-        M = M.reshape(-1,1)
-        print(f"M was bad shape and is now {M.shape}")
-        print(f"Alpha is {alpha}")
-        print(f"Np.sum(M, axis=1) is {np.sum(M, axis=1)}")
-        print(scipy.special.loggamma(alpha + M))
-        print(scipy.special.loggamma(alpha))
-        print(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)))
-
-        p = sum(scipy.special.loggamma(alpha + M).reshape(-1)) # 2
-        print(f"p is {p}")
-        p -= sum(scipy.special.loggamma(alpha).reshape(-1)) # 4 zero potentially
-        print(f"p is {p}")
-        p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)) # 1
-        print(f"p is {p}")
-        p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)) # 3
-        print(f"p is {p}")
-        if DEBUG: print(f"m was bad shape and p is {p}")
-        # TODO: This is almost certainly the problem?
-        return p
-    print(scipy.special.loggamma(alpha + M))
-    print(scipy.special.loggamma(alpha))
-    print(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)))
+    print(f"Processing component {i}")
+    if DEBUG_BAYES: print(f"alpha is {alpha}")
+    if DEBUG_BAYES: print(f"M is {M}")
+    assert M.shape == alpha.shape, f"Component size mismatch. M has shape {M.shape} and alpha has shape {alpha.shape}"
+    # print(scipy.special.loggamma(alpha + M))
+    # print(scipy.special.loggamma(alpha))
+    # print(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)))
     # if DEBUG_BAYES: print(f"M has shape {M.shape}")
-    # if DEBUG_BAYES: print(f"alpha has shape {alpha.shape}")
-    p =  sum(scipy.special.loggamma(alpha + M).reshape(-1))
-    # if DEBUG_BAYES: print(f"p has shape {p.shape}")
-    p -= sum(scipy.special.loggamma(alpha).reshape(-1))
-    # if DEBUG_BAYES: print(f"p has shape {p.shape}")
-    p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1))
-    # if DEBUG_BAYES: print(f"p has shape {p.shape}")
-    p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1))
+    p =  sum(scipy.special.loggamma(alpha + M).reshape(-1)) # 2
+    print(p)
+    
+    assert sum(scipy.special.loggamma(alpha).reshape(-1)) == 0
+    p -= sum(scipy.special.loggamma(alpha).reshape(-1)) # 4
+
+    print(sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)))
+    p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)) # 1
+
+    print(-sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)))
+    p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)) # 3
+
     if DEBUG: print(f"p is {p}")
     return p
 
@@ -193,17 +188,17 @@ def compute(infile, outfile, test=False):
 
     for i in range(D.shape[1]):
         idx2names[i] = D.columns[i]
-    # add an edge to the graph from column to column + 1 for each column in the dataframe
-    for i in range(D.shape[1] - 1):
-        G.add_edge(i, i+1)
-            
-    if DEBUG: 
-        print(f"Datafframe is {D}")
-        print(f"G is {G}")
-        print(f"The nodes of G are {G.nodes()}")
-        print(f"The edges of G are {G.edges()}")
-        print("The adjacency matrix of G is")
-        print(nx.adjacency_matrix(G).todense())
+    if "example" not in infile:
+        # add an edge to the graph from column to column + 1 for each column in the dataframe
+        for i in range(D.shape[1] - 1):
+            G.add_edge(i, i+1)
+        if DEBUG: 
+            print(f"Datafframe is {D}")
+            print(f"G is {G}")
+            print(f"The nodes of G are {G.nodes()}")
+            print(f"The edges of G are {G.edges()}")
+            print("The adjacency matrix of G is")
+            print(nx.adjacency_matrix(G).todense())
     if not test:
         write_gph(G, idx2names, outfile)
     
@@ -221,6 +216,9 @@ def compute(infile, outfile, test=False):
         idx2names = {0: 'parent1', 1: 'child1', 2: 'parent2', 3: 'child2', 4: 'parent3', 5: 'child3'}
         for edge in G.edges():
             print(f"edge is {idx2names[edge[0]]} -> {idx2names[edge[1]]}")
+        print(f"G is {G}")
+        print(f"The nodes of G are {G.nodes()}")
+        print(f"The edges of G are {G.edges()}")
 
     # For each edge, there is a variable for each value the parent of that edge can have.
     # create a variable for each column in the dataframe
@@ -233,7 +231,6 @@ def compute(infile, outfile, test=False):
         if DEBUG_BAYES: print(f"Variable {vars[i].name}: {vars[i].r}")
     if test:
         M = statistics(vars, G, D, idx2names)
-        if DEBUG: print(f"M is {M}")
 
         score = bayesian_score(vars, G, D, idx2names)
         if DEBUG_BAYES: print(f"Bayesian score is {score}")
