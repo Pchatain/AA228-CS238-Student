@@ -10,6 +10,8 @@ import pandas as pd
 DEBUG       = False
 DEBUG_BAYES = False
 VERBOSE     = False
+K2_LOG      = True
+K2_DEBUG    = False
 
 def write_gph(dag, idx2names, filename):
     """
@@ -62,7 +64,7 @@ def statistics(vars, G, D, idx2names):
     # create a list of lists of lists of zeros
     q = calculate_q(vars, G)
     M = [np.zeros((q[i], vars[i].r), dtype=np.float32) for i in range(n)]
-
+    saved_shapes_M = [M[i].shape for i in range(n)]
     # Use pandas groupby function to fill in M
     for i in range(n):
         if VERBOSE: print("-----------STARTING NEW NODE------------")
@@ -84,7 +86,13 @@ def statistics(vars, G, D, idx2names):
         if VERBOSE: print(f"tjhe reformated data is \n {grouped}")
         if VERBOSE: print(f"with shape {grouped.shape}")
         if VERBOSE: print("--------END NODE------------")
+        
+        if grouped.astype(np.float32).shape != saved_shapes_M[i]:
+            if K2_DEBUG: print(f"Shape of M[{i}] is {M[i].shape} but should be {saved_shapes_M[i]}")
+            grouped = np.pad(grouped, ((0, M[i].shape[0] - grouped.shape[0]), (0, M[i].shape[1] - grouped.shape[1])))
+            if K2_DEBUG: print(f"grouped is now shape {grouped.shape} \n {grouped}")
         M[i] = grouped.astype(np.float32)
+        assert M[i].shape == saved_shapes_M[i], f"Shape of M[{i}] is {M[i].shape} but should be {saved_shapes_M[i]}"
     if VERBOSE: print(f"M is after all statistics {M}")
     return M
 
@@ -116,6 +124,10 @@ def bayesian_score(vars, G, D, idx2names):
     alpha = prior(vars, G) # TODO Optimization: This recomputes q as in statistics
     if VERBOSE: print(alpha)
     if DEBUG_BAYES: print(f"alpha has shape {alpha[0].shape}")
+    if K2_DEBUG:
+        for i in range(n):
+            print(f"alpha[{i}] has shape {alpha[i].shape}")
+            print(f"M[{i}] has shape {M[i].shape}")
     components = [bayesian_score_component(M[i], alpha[i], i) for i in range(n)]
     return sum(components)
 
@@ -196,28 +208,34 @@ def k2_alg(vars, D, idx2names):
         end
         return G
     """
-    G = nx.DiGraph()
-    G.add_nodes_from(vars)
-    for k, i in enumerate(method.ordering[1:]):
-        y = bayesian_score(vars, G, D)
+    Graph_k2 = nx.DiGraph()
+    Graph_k2.add_nodes_from(range(len(vars)))
+    if K2_DEBUG: print(f"vars is {vars}")
+    if K2_DEBUG: print(f"graph is {Graph_k2.nodes}")
+    for i in range(1, len(vars)):
+        y = bayesian_score(vars, Graph_k2, D, idx2names)
         while True:
             y_best, j_best = float("-inf"), 0
-            for j in method.ordering[:k]:
-                if not G.has_edge(j, i):
-                    G.add_edge(j, i)
-                    y_prime = bayesian_score(vars, G, D)
+            for j in range(i):
+                if not Graph_k2.has_edge(j, i):
+                    Graph_k2.add_edge(j, i)
+                    y_prime = bayesian_score(vars, Graph_k2, D, idx2names)
                     if y_prime > y_best:
                         y_best, j_best = y_prime, j
-                    G.remove_edge(j, i)
+                    Graph_k2.remove_edge(j, i)
+                    if K2_DEBUG: print(f"bad edge. y_best is {y_best}, y_prime is {y_prime}, j_best is {j_best}, j is {j}")
             if y_best > y:
+                if K2_DEBUG: print(f"y_best is {y_best}, y is {y}. Graph_k2 has {Graph_k2.edges}")
                 y = y_best
-                G.add_edge(j_best, i)
+                Graph_k2.add_edge(j_best, i)
             else:
                 break
-    return G
+        if K2_LOG: print(f"Finiished one while loop, y is {y}")
+    if K2_LOG: print(f"Finished k2_alg, Graph_k2 is {Graph_k2.edges}")
+    return Graph_k2
 
 
-def compute(infile, outfile, test=False):
+def compute(infile, outfile, test=False, k2=False):
     """
     Read a csv file and write a graph file to outfile.
 
@@ -236,7 +254,7 @@ def compute(infile, outfile, test=False):
 
     for i in range(D.shape[1]):
         idx2names[i] = D.columns[i]
-    if "example" not in infile:
+    if "example" not in infile and not k2:
         # add an edge to the graph from column to column + 1 for each column in the dataframe
         for i in range(D.shape[1] - 1):
             G.add_edge(i, i+1)
@@ -247,8 +265,6 @@ def compute(infile, outfile, test=False):
             print(f"The edges of G are {G.edges()}")
             print("The adjacency matrix of G is")
             # print(nx.adjacency_matrix(G).todense())
-    if not test:
-        write_gph(G, idx2names, outfile)
     
     if test and "example" in infile:
         print(f"changing graph to be example graph")
@@ -258,10 +274,9 @@ def compute(infile, outfile, test=False):
         parent3,child3
         """
         G = nx.DiGraph()
-        G.add_nodes_from([0, 1, 2, 3, 4, 5])
-        # G.add_edge(0, 1)
-        # G.add_edge(2, 3)
-        # G.add_edge(4, 5)
+        G.add_edge(0, 1)
+        G.add_edge(2, 3)
+        G.add_edge(4, 5)
         idx2names = {0: 'parent1', 1: 'child1', 2: 'parent2', 3: 'child2', 4: 'parent3', 5: 'child3'}
         for edge in G.edges():
             print(f"edge is {idx2names[edge[0]]} -> {idx2names[edge[1]]}")
@@ -276,12 +291,47 @@ def compute(infile, outfile, test=False):
     # for each column in the dataframe, get the number of unique values in that column using pandas
     for i in range(D.shape[1]):
         vars[i].r = len(D[D.columns[i]].unique())
-    for i in range(D.shape[1]):
-        if DEBUG_BAYES: print(f"Variable {vars[i].name}: {vars[i].r}")
-
+    if DEBUG_BAYES: 
+        for i in range(D.shape[1]):
+            print(f"Variable {vars[i].name}: {vars[i].r}")
+    if k2:
+        G = k2_alg(vars, D, idx2names)
     score = bayesian_score(vars, G, D, idx2names)
     print(f"Bayesian score is {score}")
+    if not test:
+        print(f"Writing graph to {outfile}")
+        write_gph(G, idx2names, outfile)
     return score
+
+def read_graph(graph_filename, csv_filename):
+    """
+    Read a graph file and return a networkx graph
+    
+    Args:
+        filename (str): path to graph file
+    Returns:
+        G (nx.DiGraph): a networkx graph
+    """
+    G = nx.DiGraph()
+    idx2names = {}
+    names2idx = []
+    with open(csv_filename, "r") as f:
+        for i, line in enumerate(f):
+            if i == 0:
+                header = [field.strip('"\n') for field in line.split(",")]
+                idx2names = {i: header[i] for i in range(len(header))}
+                names2idx = {header[i]: i for i in range(len(header))}
+                print(names2idx)
+                print(idx2names)
+                break
+    with open(graph_filename, "r") as f:
+        for i, line in enumerate(f):
+            line = line.strip().split(",")
+            if len(line) == 0:
+                continue
+            print(names2idx[line[0]])
+            G.add_edge(int(names2idx[line[0]]), int(names2idx[line[1]]))
+    return G, idx2names
 
 def main():
     test = False
@@ -301,7 +351,32 @@ def main():
     inputfilename = sys.argv[1]
     graph_type = inputfilename.split(os.path.sep)[-1].split(".")[0]
     outputfilename = os.path.join(graph_dir, graph_type + ".gph")
-    compute(inputfilename, outputfilename, test)
+    compute(inputfilename, outputfilename, test, k2=True)
 
 if __name__ == '__main__':
-    main()
+    # main()
+    G, idx2names = read_graph(sys.argv[1], sys.argv[2])
+    write_gph(G, idx2names, sys.argv[3])
+    """
+    Implemented k2 and ran it. It produced:
+        For small graph:
+            Finiished one while loop, y is -4166.225858784904
+            Finiished one while loop, y is -4166.225858784904
+            Finiished one while loop, y is -4157.072323526103
+            Finiished one while loop, y is -4073.192463465056
+            Finiished one while loop, y is -4050.445393155355
+            Finiished one while loop, y is -4015.6969794439788
+            Finiished one while loop, y is -3835.6794252127916
+        For medium graph:
+            Finiished one while loop, y is -45367.62511363247
+            Finiished one while loop, y is -45293.82258329491
+            ...
+            Finiished one while loop, y is -42698.695641014245
+            Finiished one while loop, y is -42017.4490617635
+        for large graph:
+            Finiished one while loop, y is -486675.61757787236
+            Finiished one while loop, y is -483519.6635786245
+            ...
+            Finiished one while loop, y is -404564.6021664627
+            Finiished one while loop, y is -404192.31703113194
+    """
