@@ -7,9 +7,9 @@ import numpy as np
 import pgmpy
 import pandas as pd
 
-DEBUG       = True
-DEBUG_BAYES = True
-VERBOSE     = True
+DEBUG       = False
+DEBUG_BAYES = False
+VERBOSE     = False
 
 def write_gph(dag, idx2names, filename):
     """
@@ -198,7 +198,7 @@ def compute(infile, outfile, test=False):
             print(f"The nodes of G are {G.nodes()}")
             print(f"The edges of G are {G.edges()}")
             print("The adjacency matrix of G is")
-            print(nx.adjacency_matrix(G).todense())
+            # print(nx.adjacency_matrix(G).todense())
     if not test:
         write_gph(G, idx2names, outfile)
     
@@ -230,10 +230,8 @@ def compute(infile, outfile, test=False):
     for i in range(D.shape[1]):
         if DEBUG_BAYES: print(f"Variable {vars[i].name}: {vars[i].r}")
     if test:
-        M = statistics(vars, G, D, idx2names)
-
         score = bayesian_score(vars, G, D, idx2names)
-        if DEBUG_BAYES: print(f"Bayesian score is {score}")
+        print(f"Bayesian score is {score}")
         return score
 
 def main():
