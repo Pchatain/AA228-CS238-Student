@@ -7,7 +7,7 @@ import numpy as np
 import pgmpy
 import pandas as pd
 
-DEBUG = False
+DEBUG = True
 DEBUG_BAYES = True
 
 def write_gph(dag, idx2names, filename):
@@ -80,6 +80,7 @@ def statistics(vars, G, D, idx2names):
         if DEBUG: print(f"with shape {grouped.shape}")
         if DEBUG: print("--------END NODE------------")
         M[i] = grouped
+    if DEBUG: print(f"M is after all statistics {M}")
     return M
 
 
@@ -105,6 +106,7 @@ def bayesian_score(vars, G, D, idx2names):
     M = statistics(vars, G, D, idx2names)
     if DEBUG_BAYES: print(f"M has shape {M[0].shape}")
     alpha = prior(vars, G) # TODO Optimization: This recomputes q as in statistics
+    print(alpha)
     if DEBUG_BAYES: print(f"alpha has shape {alpha[0].shape}")
     components = [bayesian_score_component(M[i], alpha[i]) for i in range(1,n)]
     return sum(components)
@@ -115,12 +117,36 @@ def bayesian_score_component(M, alpha):
     Compute the Bayesian score component of a matrix M.
     
     Args:
-        M (numpy.ndarray): a matrix
-        alpha (float): a parameter
+        M (numpy.ndarray): a matrix with shape (n_nodes, n_parental_configurations, n_values (k))
+        alpha (float): a parameter with shape (n_nodes, n_parental_configurations, n_values (k))
         
     Returns:
         float: the Bayesian score component
     """
+    assert M.shape == alpha.shape
+    if len(M.shape) == 1:
+        M = M.reshape(-1,1)
+        print(f"M was bad shape and is now {M.shape}")
+        print(f"Alpha is {alpha}")
+        print(f"Np.sum(M, axis=1) is {np.sum(M, axis=1)}")
+        print(scipy.special.loggamma(alpha + M))
+        print(scipy.special.loggamma(alpha))
+        print(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)))
+
+        p = sum(scipy.special.loggamma(alpha + M).reshape(-1)) # 2
+        print(f"p is {p}")
+        p -= sum(scipy.special.loggamma(alpha).reshape(-1)) # 4 zero potentially
+        print(f"p is {p}")
+        p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1)) # 1
+        print(f"p is {p}")
+        p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1)) # 3
+        print(f"p is {p}")
+        if DEBUG: print(f"m was bad shape and p is {p}")
+        # TODO: This is almost certainly the problem?
+        return p
+    print(scipy.special.loggamma(alpha + M))
+    print(scipy.special.loggamma(alpha))
+    print(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)))
     # if DEBUG_BAYES: print(f"M has shape {M.shape}")
     # if DEBUG_BAYES: print(f"alpha has shape {alpha.shape}")
     p =  sum(scipy.special.loggamma(alpha + M).reshape(-1))
@@ -130,7 +156,7 @@ def bayesian_score_component(M, alpha):
     p += sum(scipy.special.loggamma(np.sum(alpha, axis=1)).reshape(-1))
     # if DEBUG_BAYES: print(f"p has shape {p.shape}")
     p -= sum(scipy.special.loggamma(np.sum(alpha, axis=1) + np.sum(M, axis=1)).reshape(-1))
-    # if DEBUG_BAYES: print(f"p is {p}")
+    if DEBUG: print(f"p is {p}")
     return p
 
 
@@ -181,6 +207,21 @@ def compute(infile, outfile, test=False):
     if not test:
         write_gph(G, idx2names, outfile)
     
+    if test and "example" in infile:
+        print(f"changing graph to be example graph")
+        """
+        parent1,child1
+        parent2,child2
+        parent3,child3
+        """
+        G = nx.DiGraph()
+        G.add_edge(0, 1)
+        G.add_edge(2, 3)
+        G.add_edge(4, 5)
+        idx2names = {0: 'parent1', 1: 'child1', 2: 'parent2', 3: 'child2', 4: 'parent3', 5: 'child3'}
+        for edge in G.edges():
+            print(f"edge is {idx2names[edge[0]]} -> {idx2names[edge[1]]}")
+
     # For each edge, there is a variable for each value the parent of that edge can have.
     # create a variable for each column in the dataframe
     vars = [Variable(col, 0) for col in D.columns]
@@ -204,7 +245,7 @@ def main():
     if len(sys.argv) == 2:
         print("Running unit test beacuse no args were passed")
         test = True
-        inputfilename = os.path.join(data_dir, sys.argv[1])
+        inputfilename = sys.argv[1]
         compute(inputfilename, "testing", test)
         return 0
     elif len(sys.argv) != 3:
@@ -213,7 +254,7 @@ def main():
     if not os.path.exists(graph_dir):
         os.makedirs(graph_dir)
     
-    inputfilename = os.path.join(data_dir, sys.argv[1])
+    inputfilename = sys.argv[1]
     graph_type = inputfilename.split(os.path.sep)[-1].split(".")[0]
     outputfilename = os.path.join(graph_dir, graph_type + ".gph")
     compute(inputfilename, outputfilename, test)
