@@ -317,6 +317,8 @@ def rand_graph_neighbor(G):
 def hill_climb(csv_file, graph_file, outfile):
     """
     Perform hill climbing on top of an existing graph.
+    Note: This code is not used in the final submission
+    because it created cycles in the graphs for some reason.
 
     Args:
         csv_file (str): path to csv file
