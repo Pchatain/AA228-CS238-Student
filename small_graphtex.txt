@@ -1,0 +1,25 @@
+{0: 'age', 1: 'portembarked', 2: 'fare', 3: 'numparentschildren', 4: 'passengerclass', 5: 'sex', 6: 'numsiblings', 7: 'survived'}
+  \begin{tikzpicture}
+      \draw
+        (0.0:10) node (0){0}
+        (0.785:10) node (3){3}
+        (1.571:10) node (4){4}
+        (2.356:10) node (1){1}
+        (3.142:10) node (5){5}
+        (3.927:10) node (2){2}
+        (4.712:10) node (6){6}
+        (5.498:10) node (7){7};
+      \begin{scope}[->]
+        \draw (0) to (3);
+        \draw (0) to (4);
+        \draw (3) to (5);
+        \draw (3) to (6);
+        \draw (4) to (5);
+        \draw (4) to (7);
+        \draw (1) to (4);
+        \draw (1) to (5);
+        \draw (5) to (7);
+        \draw (2) to (4);
+      \end{scope}
+    \end{tikzpicture}
+

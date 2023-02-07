@@ -6,6 +6,8 @@ import scipy
 import numpy as np
 import pgmpy
 import pandas as pd
+import matplotlib.pyplot as plt
+import time
 
 DEBUG       = False
 DEBUG_BAYES = False
@@ -181,33 +183,14 @@ class Variable:
 
 def k2_alg(vars, D, idx2names):
     """
-    Julia Code:
-    function fit(method::K2Search, vars, D)
-        G = SimpleDiGraph(length(vars))
-        for (k,i) in enumerate(method.ordering[2:end])
-            y = bayesian_score(vars, G, D)
-            while true
-                y_best, j_best = -Inf, 0
-                for j in method.ordering[1:k]
-                    if !has_edge(G, j, i)
-                        add_edge!(G, j, i)
-                        y′ = bayesian_score(vars, G, D)
-                        if y′ > y_best
-                            y_best, j_best = y′, j
-                        end
-                        rem_edge!(G, j, i)
-                    end
-                end
-                if y_best > y
-                    y = y_best
-                    add_edge!(G, j_best, i)
-                else
-                    break
-                end
-            end
-        end
-        return G
+    Run the K2 algorithm on a dataset D.
+
+    Args:
+        vars (list): a list of variables
+        D (numpy.ndarray): a dataset with shape (n_samples, n_features)
+        idx2names (dict): a mapping from indices to names
     """
+    start_time = time.time()
     Graph_k2 = nx.DiGraph()
     Graph_k2.add_nodes_from(range(len(vars)))
     if K2_DEBUG: print(f"vars is {vars}")
@@ -232,6 +215,8 @@ def k2_alg(vars, D, idx2names):
                 break
         if K2_LOG: print(f"Finiished one while loop, y is {y}")
     if K2_LOG: print(f"Finished k2_alg, Graph_k2 is {Graph_k2.edges}")
+    end_time = time.time()
+    print(f"K2 algorithm took {end_time - start_time} seconds")
     return Graph_k2
 
 
@@ -393,8 +378,8 @@ def main():
         inputfilename = sys.argv[1]
         compute(inputfilename, "testing", test)
         return 0
-    elif len(sys.argv) != 4:
-        raise Exception("usage: python project1.py <infile>.csv <outfolder> <graphfile>.gph")
+    elif len(sys.argv) != 3 and len(sys.argv) != 4:
+        raise Exception("usage: python project1.py <infile>.csv <outfolder> optional:<graphfile>.gph")
     graph_dir = sys.argv[2] + "_graphs"
     if not os.path.exists(graph_dir):
         os.makedirs(graph_dir)
@@ -402,13 +387,39 @@ def main():
     inputfilename = sys.argv[1]
     graph_type = inputfilename.split(os.path.sep)[-1].split(".")[0]
     outputfilename = os.path.join(graph_dir, graph_type + ".gph")
-    # compute(inputfilename, outputfilename, test, k2=True) # k2 starting point
-    hill_climb(inputfilename, graph_file=sys.argv[3], outfile=outputfilename)
+    if len(sys.argv) == 3:
+        compute(inputfilename, outputfilename, test, k2=True) # k2 starting point
+    else:
+        assert len(sys.argv) == 4, "usage: python project1.py <infile>.csv <outfolder> optional:<graphfile>.gph"
+        hill_climb(inputfilename, graph_file=sys.argv[3], outfile=outputfilename)
 
 if __name__ == '__main__':
-    main()
-    # G, idx2names = read_graph(sys.argv[1], sys.argv[2])
+    # main()
+    G, idx2names = read_graph(sys.argv[1], sys.argv[2])
+    print("graph has cycles list: ")
+    print(list(nx.simple_cycles(G)))
     # write_gph(G, idx2names, sys.argv[3])
+
+    # read the graph file
+    """
+    # code for saving the produced graphs as a pdf
+    G, idx2names = read_graph(sys.argv[1], sys.argv[2])
+    # then make a pdf of the graphs usting networkx
+    for layer, nodes in enumerate(nx.topological_generations(G)):
+        # `multipartite_layout` expects the layer as a node attribute, so add the
+        # numeric layer value as a node attribute
+        for node in nodes:
+            G.nodes[node]["layer"] = layer
+
+    # Compute the multipartite_layout using the "layer" node attribute
+    pos = nx.multipartite_layout(G, subset_key="layer")
+
+    fig, ax = plt.subplots()
+    nx.draw_networkx(G, pos=pos, ax=ax)
+    ax.set_title("DAG layout in topological order")
+    fig.tight_layout()
+    plt.savefig(sys.argv[1] + ".png")"""
+
     """
     Implemented k2 and ran it. It produced:
         For small graph:
