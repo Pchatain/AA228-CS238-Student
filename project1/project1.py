@@ -310,6 +310,7 @@ def hill_climb(csv_file, graph_file, outfile):
         graph_file (str): path to graph file
         outfile (str): path to output graph file
     """
+    start_time = time.time()
     G, idx2names = read_graph(graph_file, csv_file)
     D = pd.read_csv(csv_file)
     vars = [Variable(col, 0) for col in D.columns]
@@ -320,10 +321,13 @@ def hill_climb(csv_file, graph_file, outfile):
     print(f"old score is {old_score}")
     first_score = old_score
     # perform the hill climbing algorithm
-    for iteration in range(200):
+    for iteration in range(1000):
         G_new = rand_graph_neighbor(G)
         # if G_new is cyclic, skip it
-        if len(list(nx.simple_cycles(G))) > 0:
+        if iteration % 100 == 0:
+            print(f"iteration {iteration} score is {old_score}, saving checkpoint")
+            write_gph(G, idx2names, outfile + ".checkpoint")
+        if len(list(nx.simple_cycles(G_new))) > 0:
             # print(f"Bad, skipping")
             continue
         new_score = bayesian_score(vars, G_new, D, idx2names)
@@ -331,15 +335,14 @@ def hill_climb(csv_file, graph_file, outfile):
             G = G_new
             old_score = new_score
             print(f"New score is {old_score}")
-        if iteration % 10 == 0:
-            print(f"iteration {iteration} score is {old_score}, saving checkpoint")
-            write_gph(G, idx2names, outfile + ".checkpoint")
 
     score = bayesian_score(vars, G, D, idx2names)
     print(f"Bayesian score is {score}")
     if score > first_score:
         print(f"Writing graph to {outfile} because {score} > {first_score}")
         write_gph(G, idx2names, outfile)
+    end_time = time.time()
+    print(f"Time elapsed: {end_time - start_time}")
 
 def read_graph(graph_filename, csv_filename):
     """
@@ -394,32 +397,32 @@ def main():
         hill_climb(inputfilename, graph_file=sys.argv[3], outfile=outputfilename)
 
 if __name__ == '__main__':
-    # main()
-    G, idx2names = read_graph(sys.argv[1], sys.argv[2])
-    print("graph has cycles list: ")
-    print(list(nx.simple_cycles(G)))
+    main()
+
+    # print("WARNING: RUNNING TEST CYCLES CODE")
+    # G, idx2names = read_graph(sys.argv[1], sys.argv[2]) # graph_fillename, csv_filename
+    # print("graph has cycles list: ")
+    # print(list(nx.simple_cycles(G)))
     # write_gph(G, idx2names, sys.argv[3])
-
-    # read the graph file
-    """
+    
     # code for saving the produced graphs as a pdf
-    G, idx2names = read_graph(sys.argv[1], sys.argv[2])
-    # then make a pdf of the graphs usting networkx
-    for layer, nodes in enumerate(nx.topological_generations(G)):
-        # `multipartite_layout` expects the layer as a node attribute, so add the
-        # numeric layer value as a node attribute
-        for node in nodes:
-            G.nodes[node]["layer"] = layer
+    # G, idx2names = read_graph(sys.argv[1], sys.argv[2]) # graph_fillename, csv_filename
+    # # then make a pdf of the graphs usting networkx
+    # for layer, nodes in enumerate(nx.topological_generations(G)):
+    #     # `multipartite_layout` expects the layer as a node attribute, so add the
+    #     # numeric layer value as a node attribute
+    #     for node in nodes:
+    #         G.nodes[node]["layer"] = layer
 
-    # Compute the multipartite_layout using the "layer" node attribute
-    pos = nx.multipartite_layout(G, subset_key="layer")
+    # # Compute the multipartite_layout using the "layer" node attribute
+    # pos = nx.multipartite_layout(G, subset_key="layer")
 
-    fig, ax = plt.subplots()
-    nx.draw_networkx(G, pos=pos, ax=ax)
-    ax.set_title("DAG layout in topological order")
-    fig.tight_layout()
-    plt.savefig(sys.argv[1] + ".png")"""
-
+    # fig, ax = plt.subplots()
+    # nx.draw_networkx(G, pos=pos, ax=ax)
+    # ax.set_title("DAG layout in topological order")
+    # fig.tight_layout()
+    # plt.savefig(sys.argv[1] + ".png")
+    
     """
     Implemented k2 and ran it. It produced:
         For small graph:
