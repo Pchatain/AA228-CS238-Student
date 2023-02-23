@@ -8,6 +8,7 @@ import pandas as pd
 import os
 import timeit
 import tqdm
+import plotly.express as px
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -68,13 +69,15 @@ def main():
         config = medium_config
     elif args.data_size == "large":
         config = large_config
-    q = QLearning(**config)
+    q = QLearning(**config, learning_rate=0.01)
 
-    for _ in tqdm.tqdm(range(1000)):
+    for _ in tqdm.tqdm(range(100)):
         for j in range(100):
             q.update(df.iloc[j, 0] - 1, df.iloc[j, 1] - 1, df.iloc[j, 2], df.iloc[j, 3] - 1)
 
     # save results to args.output_file
+    print(q.Q.shape)
+    print(q.Q)
     policy = np.argmax(q.Q, axis=1)
     # add one to the policy to make it 1-indexed
     policy += 1
@@ -84,6 +87,11 @@ def main():
         os.makedirs(args.output_file)
     output_path = os.path.join(args.output_file, args.data_size) + ".policy"
     np.savetxt(output_path, policy, fmt="%d")
+
+    # Plot a histogram of the policy
+    fig = px.histogram(policy)
+    fig.show()
+
 
 if __name__ == "__main__":
     args = parse_args()
