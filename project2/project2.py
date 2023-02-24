@@ -70,9 +70,10 @@ def main():
     elif args.data_size == "large":
         config = large_config
     q = QLearning(**config, learning_rate=0.01)
+    n_samples = df.shape[0]
 
     for _ in tqdm.tqdm(range(100)):
-        for j in range(100):
+        for j in range(n_samples):
             q.update(df.iloc[j, 0] - 1, df.iloc[j, 1] - 1, df.iloc[j, 2], df.iloc[j, 3] - 1)
 
     # save results to args.output_file
