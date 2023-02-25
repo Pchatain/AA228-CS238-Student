@@ -57,7 +57,7 @@ def main():
     df = pd.read_csv(data_path)
     print(df)
     print(f"Columnsa re {df.columns}")
-    # columns are [state, action, reward, new_state]
+
     # run Q-learning
     small_config = {"n_states": 100, "n_actions": 4, "discount": 0.95}
     medium_config = {"n_states": 500 * 100, "n_actions": 7, "discount": 0.0}
